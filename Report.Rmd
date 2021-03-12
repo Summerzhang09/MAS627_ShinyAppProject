@@ -1,0 +1,299 @@
+---
+title: "Report"
+author: "Wenjin Zhang"
+date: "2021/3/05"
+output: pdf_document
+fig_caption: yes
+header-includes:
+  - \usepackage{placeins}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+pacman::p_load(knitr, png, grid, magrittr, tidyr, dplyr, lubridate, ggpubr, gridExtra)
+knitr::knit_hooks$set(plot = function (x, options) {
+  float_correct <- function(f, y, opts)  {
+    if (is.null(opts$regfloat) || opts$regfloat==FALSE)
+      paste0(f(y, opts), "\n\n\\FloatBarrier\n")
+    else
+      f(y, opts)
+  }
+  if (!is.null(options$out.width) || !is.null(options$out.height) ||
+      !is.null(options$out.extra) || options$fig.align != "default" ||
+      !is.null(options$fig.subcap)) {
+    if (is.null(options$fig.scap))
+      options$fig.scap = NA
+    return(float_correct(knitr:::hook_plot_tex, x, options))
+  }
+  return(float_correct(knitr:::hook_plot_md_base, x, options))
+})
+```
+
+# Overview
+
+## Introduction
+
+The COVID-19 pandemic has had a devastating effect on the economy in the United States. In early March 2020, the first lockdowns began and the stock market plunged. After this initial reaction, however, the market recovered.  
+
+I use some stock information downloaded by myself at the beginning of winter holidays through package **tidyquant**. And I assume an intial position of \$250,000 in cash on 2020-07-01 and invest 6 stocks using investment advice before 1st July from ETF. I track the value of my portfolio using last close prices through the fall to 2020-11-30. At the end of 2020-12-01, I have a position of \$495,201 in cash.  
+
+n shiny I not only display the result of our portfolio, but also show close prices of the indexes and some other stocks. This app ensure people to have a general impression on the change in stock market and make their own portfolio.  
+
+The goal of this project is to make us go from raw data to an interactive web app in R via the shiny package.  
+
+[**Click here go to shiny app**](https://wenjinsummer-zhang.shinyapps.io/Shinyapp/)
+
+\newpage
+
+## Data
+I choose several datasets:  
+- The list of stocks containing symbol, company name, last sale price, market caption, ipo, sector and industry from 2020-07-01 to 2020-11-30.  
+- All stock prices from 2020-07-01 to 2020-11-30.   
+- Values of three indexes(S&P 500, Dow Jones Industrial Average and NASDAQ) from 2020-07-01 to 2021-03-10.  
+
+To be honest, I am really interested in the stock market and want to experience investment. So I downloaded the stock list and stock prices (2020-07-01 -- 2020-11-30) through functions in tidyquant package at the beginning of winter holidays (Downloading these data cost me at least 5 hours). I choose stock data from 2020-07-01 is to find out: 1) Since I use online advice to invest, I can check whether their suggestions are reliable. 2) I try to keep an eye on the change in financial market after the outbreak of COVID-19. Unfortunatly, I find there is something wrong with functions in tidyquant when I try to download the latest data.  
+Hence, I will show how I downloaded the data before. And I will clean and display these datasets.  
+
+### Preparation
+- I use tq_exchange() to collect the name of all stocks from three stock exchanges (AMER, NASDAQ, NYSE). This dataset has 7535 rows (7535 stocks) and 7 columns.  
+
+```{r}
+setwd("C:/Users/rong.li/Desktop/CourseProject/data")
+load("stocklist.RData")
+kable(stocklist[1:3,])
+```
+
+- Then I use tq_get() to download price of all stocks form 2020-07-01 to 2020-11-30. When I continue to download data on 2020-12-01, the connection of tq_get() failes. This dataset contains 654984 rows and 8 columns.  
+
+```{r}
+load("C:/Users/rong.li/Desktop/CourseProject/data/stockprice.RData")
+kable(stockprice[1:3,])
+```
+
+- So, we search closing price on 2020-12-01 of the six stocks we are interested in one by one on [**YAHOO**](https://finance.yahoo.com/) website.   
+
+```{r}
+addrevenue <- data.frame(date = "2020-12-01", 
+                         ZM = 406.31, 
+                         CTVA = 38.31, 
+                         PINS = 68.21, 
+                         UBER = 49.63, 
+                         MRNA = 141.01, 
+                         PENN = 70.03)
+kable(addrevenue)
+```
+
+- I also download values of [S&P 500](https://finance.yahoo.com/quote/%5EGSPC?p=%5EGSPC), [Dow Jones Industrial Average](https://finance.yahoo.com/quote/%5EDJI?p=%5EDJI) and [NASDAQ](https://finance.yahoo.com/quote/%5EIXIC?p=%5EIXIC) to take an overall view of the stock market.  
+
+S&P 500  
+```{r}
+sp500 <- read.csv("C:/Users/rong.li/Desktop/CourseProject/data/sp500.csv")
+head(sp500,3) %>% kable
+```
+
+
+Dow Jones Industrial Average  
+```{r}
+dj <- read.csv("C:/Users/rong.li/Desktop/CourseProject/data/dj.csv")
+head(dj,3) %>% kable
+```
+
+NASDAQ  
+```{r}
+nasdaq <- read.csv("C:/Users/rong.li/Desktop/CourseProject/data/nasdaq.csv")
+head(nasdaq,3) %>% kable
+```
+
+- Finally I obtain two big datasets (ranging from 2020-07-01 to 2020-11-30) and six closing prices on 2020-12-01. And I get three datasets of three indexes (ranging from 2020-07-01 to 2021-03-10).
+
+
+### Cleaning
+- We eliminate duplicated records of the stocks and stocks without full trading days.  
+
+```{r, result = "hide"}
+# delete NAs
+# stocklist %<>% na.omit()
+stockprice %<>% na.omit()
+
+# filter the stock don't have full trading days
+a <- stockprice %>% group_by(symbol) %>% summarise(count = sum(year(date) > 2019))
+a %<>% filter(count == 106)
+stocklist %<>% filter(symbol %in% a$symbol)
+stockprice %<>% filter(symbol %in% a$symbol)
+rm(a)
+```
+
+\newpage
+## Investment
+In this part, I use online investment advice that was available at the beginning of July 2020 to make investment decisions and then track my investments through the fall until 1st December.  
+
+### Online Advice
+I search some big fund companies and look at their top ten holdings on [**ETF**](https://www.etf.com/channels/ipo) website.  
+
+### Portfolio
+From the website, I choose 6 companies that I am interested in and give them different weights. Assume an initial position of $250,000 in cash starting on 1 July 2020. After buying these 6 stocks, we still have \$1.59 left. The holdings are listed in here:  
+
+```{r}
+# find the stock I want to hold
+melist <- stocklist %>% filter(symbol %in% c("MRNA", "ZM", "UBER", "PINS", "PENN", "CTVA"))
+#mestock$company
+# "Moderna, Inc."                   "Penn National Gaming, Inc."     
+# "Zoom Video Communications, Inc." "Corteva, Inc."                  
+# "Pinterest, Inc."                 "Uber Technologies, Inc."
+
+# find the price of six stocks
+meprice <- stockprice %>% filter(symbol %in% melist$symbol)
+
+# find the price on 2020-07-01
+mepricefirst <- meprice %>% filter(date == "2020-07-01")
+#unique(mepricefirst$symbol)
+# "ZM"   "CTVA" "PINS" "UBER" "MRNA" "PENN"
+
+# I have $250000 in July 1st
+shareratio <- c(0.2, 0.1, 0.1, 0.2, 0.3, 0.1) * 250000
+shareset <- floor(shareratio/mepricefirst$close)
+#round(sum(shareratio - shareset * mepricefirst$close), 2)
+shareset[1] <- shareset[1] + 1
+shareset[3] <- shareset[3] + 1
+shareset[5] <- shareset[5] + 1
+rest <- round(sum(shareratio - shareset * mepricefirst$close), 2)
+
+
+shareratio <- (shareset * mepricefirst$close) / sum(shareset * mepricefirst$close)
+mepricefirst %<>% mutate(share = shareset, amount = shareset * mepricefirst$close, percent = paste(round(shareratio*100), "%"))
+
+df <- mepricefirst[order(mepricefirst$percent, decreasing = TRUE), c(1, 9, 10, 11)]
+df$company <- c("Maderna", "Zoom", "Uber", "Corteva", "Pinterest", "Penn")
+df %<>% select(symbol, company, share, amount, percent)
+df2 <- data.frame(company = "Total", share = " ", amount = sum(df$amount), percent = paste(100, "%"))
+rbind(df[, 2:5], df2) %>% kable()
+```
+
+Then we use donut chart to see the proportions of each sector.  
+
+```{r, fig.cap = "This shows the proportions of each sector.", fig.height=3}
+#some donut graphs
+df$labs <- paste0(df$company, " (", df$percent, ")")
+
+df3 <- melist[-5,] #delete PINS
+df3 %<>% left_join(df, by = "symbol")
+df3 %<>% select(sector, amount, percent)
+df3$amount[3] <- 75014.81 
+df3$percent[3] <- "30 %"
+df3$labs <- paste0(df3$sector, " (", df3$percent, ")")
+p3 <- ggdonutchart(df3, "amount",
+             label = "labs", 
+             lab.pos = "out", 
+             fill = "sector",
+             lab.adjust = 0,
+             lab.font = c(4, "bold", "grey"),
+             color = "white",
+             palette = "Greens") + 
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5)) + 
+  coord_polar(theta = "y", start = 0, clip = "off")
+p3
+```
+
+As we can see from Figure1, the investment is concentrated in technology and health care sectors.  
+
+### Result
+Now I hold 1218 shares of Maderna, 193 shares of Zoom, 1643 shares of Uber, 924 shares of Corteva, 1074 shares of Pinterest and 783 shares of Penn National Gaming and \$1.59 in cash. I track our investments using last close prices through the fall to 2020-12-01 and calculate the value of my portfolio every day.
+
+```{r, fig.cap = "This shows the asset value from 2020-07-01 to 2020-12-01", fig.height=3.5, fig.width=5.5}
+# calculate the revenue every day
+#unique(meprice$symbol)
+# "ZM"   "CTVA" "PINS" "UBER" "MRNA" "PENN"
+revenue <- meprice[, c(1, 2, 6)] %>% pivot_wider(names_from = symbol, 
+                                   values_from = close)
+# forget to download data on 2020-12-01, add the close price of the six stocks
+addrevenue <- data.frame(date = "2020-12-01", 
+                         ZM = 406.31, 
+                         CTVA = 38.31, 
+                         PINS = 68.21, 
+                         UBER = 49.63, 
+                         MRNA = 141.01, 
+                         PENN = 70.03)
+addrevenue$date %<>% as.Date()
+revenue <- rbind(revenue, addrevenue)
+rm(addrevenue)
+
+total <- as.matrix(revenue[, 2:7]) %*% as.matrix(shareset) + rest
+revenue$total <- as.vector(total)
+rm(total)
+revenue$ZMr <- revenue$ZM * shareset[1]
+revenue$CTVAr <- revenue$CTVA * shareset[2]
+revenue$PINSr <- revenue$PINS * shareset[3]
+revenue$UBERr <- revenue$UBER * shareset[4]
+revenue$MRNAr <- revenue$MRNA * shareset[5]
+revenue$PENNr <- revenue$PENN * shareset[6]
+
+revenue %<>% select(date, total, ZM, ZMr, CTVA, CTVAr, PINS, PINSr, UBER, UBERr, MRNA, MRNAr, PENN, PENNr)
+
+# draw picture
+ggplot(revenue, mapping = aes(x = date, y = total)) + 
+  geom_line() + 
+  ylab("revenue") + 
+  xlab("month") + 
+  ggtitle("The asset values every day") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+kable(revenue[107, c(1, 2, 4, 6, 8, 10, 12, 14)])
+```
+
+Assume an initial position of \$250,000 in cash starting on 1 July 2020. At the end of 2020-12-01, I have a position of \$495,201 in cash.  
+
+\newpage
+## Purpose and Function
+
+In shiny I can not only display the result of our portfolio, but also show close prices of the indexes and some other stocks. This app ensure people to have a general impression on the change in stock market and make their own portfolio.  
+- You can choose from the sidebar to see the information of all stocks and my portfolio.  
+- Information of all stocks contains the index information from 2020-07-01 to 2021-03-10 and various prices of a single stock from 2020-07-01 to 2020-11-30. In control box you can choose which period and stock to display.  
+- I use tables and dynamic plots to show portfolio.    
+- I provide a way to build your own portfolio. You can choose 3 stocks and set different proportions, then track your portfolio. 
+
+[**Click here go to shiny app**](https://wenjinsummer-zhang.shinyapps.io/Shinyapp/)
+
+## Most Difficult Part
+
+Getting access to high quality data is the most difficult part. Since the functions in tidyquant go wrong, I spend hours trying to use other packages to download data and failed. I can only download the latest values of indexes on YAHOO website.
+
+\newpage
+
+## Screen Shots
+
+![Screen Shot1](C:/Users/rong.li/Desktop/CourseProject/ScreenShots/1.jpg)
+
+![Screen Shot2](C:/Users/rong.li/Desktop/CourseProject/ScreenShots/2.jpg)
+
+![Screen Shot3](C:/Users/rong.li/Desktop/CourseProject/ScreenShots/3.jpg)
+
+![Screen Shot4](C:/Users/rong.li/Desktop/CourseProject/ScreenShots/4.jpg)
+
+![Screen Shot5](C:/Users/rong.li/Desktop/CourseProject/ScreenShots/5.jpg)
+
+![Screen Shot6](C:/Users/rong.li/Desktop/CourseProject/ScreenShots/6.jpg)
+
+\newpage
+
+## Inference
+- The main packages I use:  
+1.Matt Dancho and Davis Vaughan (2020). tidyquant: Tidy Quantitative Financial
+  Analysis. R package version 1.0.2. https://CRAN.R-project.org/package=tidyquant   
+2.Hadley Wickham, Romain François, Lionel Henry and Kirill Müller (2020). dplyr:
+  A Grammar of Data Manipulation. R package version 1.0.2.
+  https://CRAN.R-project.org/package=dplyr  
+3.Alboukadel Kassambara (2020). ggpubr: 'ggplot2' Based Publication Ready Plots.
+  R package version 0.4.0. https://CRAN.R-project.org/package=ggpubr  
+4.Stefan Milton Bache and Hadley Wickham (2014). magrittr: A Forward-Pipe
+  Operator for R. R package version 1.5.
+  https://CRAN.R-project.org/package=magrittr  
+5.Hadley Wickham (2020). tidyr: Tidy Messy Data. R package version 1.1.2.
+  https://CRAN.R-project.org/package=tidyr   
+  
+- The data I use is downloaded from [YAHOO](https://finance.yahoo.com/).  
+
+- The online investment I use is from [ETF](https://www.etf.com/channels/ipo).  
+
+
